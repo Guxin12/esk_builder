@@ -140,7 +140,7 @@ error() {
         cat << EOF
 ❌ *$(escape_md_v2 "$KERNEL_NAME Kernel CI")*
 
-🏷️ *Tags*: \#$(escape_md_v2 "$BUILD_TAG") \#error
+🏷️ *Tags*: \#generic \#$(escape_md_v2 "$BUILD_TAG") \#error
 $(tg_run_line)
 
 $(escape_md_v2 "ERROR: $*")
@@ -162,11 +162,8 @@ trap 'error "Build failed at line $LINENO: $BASH_COMMAND"' ERR
 KSU="${KSU:-VNL}"
 # Include SuSFS?
 SUSFS="$(norm_bool "${SUSFS:-false}")"
-# Apply LXC patch?
-LXC="$(norm_bool "${LXC:-false}")"
 
 # --- Paths
-KERNEL_PATCHES="$WORKSPACE/kernel_patches"
 CLANG="$WORKSPACE/clang"
 CLANG_BIN="$CLANG/bin"
 SIGN_KEY="$WORKSPACE/key"
@@ -176,9 +173,9 @@ BOOT_IMAGE="$WORKSPACE/boot_image"
 BOOT_SIGN_KEY="$SIGN_KEY/boot_sign_key.pem"
 
 # --- Sources (host:owner/repo@ref)
-KERNEL_REPO="github.com:ESK-Project/android_kernel_xiaomi_mt6895@16"
+KERNEL_REPO="github.com:ESK-Project/android12-5.10-gki@main"
 KERNEL="$WORKSPACE/kernel"
-ANYKERNEL_REPO="github.com:ESK-Project/AnyKernel3@android12-5.10"
+ANYKERNEL_REPO="github.com:ESK-Project/AnyKernel3@gki"
 ANYKERNEL="$WORKSPACE/anykernel3"
 GKI_URL="https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2025-09_r1.zip"
 BUILD_TOOLS_REPO="android.googlesource.com:kernel/prebuilts/build-tools@main-kernel-build-2024"
@@ -295,7 +292,7 @@ send_start_msg() {
         cat << EOF
 🚧 *$(escape_md_v2 "$KERNEL_NAME Kernel Build Started!")*
 
-🏷️ *Tags*: \#$(escape_md_v2 "$BUILD_TAG")
+🏷️ *Tags*: \#generic \#$(escape_md_v2 "$BUILD_TAG")
 $(tg_run_line)
 
 🧱 *Build Info*
@@ -305,8 +302,7 @@ $(tg_run_line)
 
 ⚙️ *Features*
 ├ KernelSU: $(parse_bool "$ksu_included")
-├ SuSFS: $(parse_bool "$SUSFS")
-└ LXC: $(parse_bool "$LXC")
+└ SuSFS: $(parse_bool "$SUSFS")
 EOF
     )
     telegram_send_msg "$start_msg"
@@ -440,13 +436,6 @@ prepare_build() {
         config --disable CONFIG_KSU_SUSFS
     fi
 
-    # LXC
-    if is_true "$LXC"; then
-        info "Apply LXC patch"
-        patch -s -p1 --fuzz=3 --no-backup-if-mismatch < "$KERNEL_PATCHES/lxc_support.patch"
-        success "LXC patch applied"
-    fi
-
     # Config Clang LTO
     clang_lto "$CLANG_LTO"
 }
@@ -490,27 +479,28 @@ package_bootimg() {
     pushd "$BOOT_IMAGE" > /dev/null
 
     cp -p "$KERNEL_OUT/arch/arm64/boot/Image" ./Image
-    gzip -n -f -9 Image
+    gzip -n -k -f -9 Image
+    lz4 -f -l --favor-decSpeed Image Image.lz4
 
     curl -fsSLo gki-kernel.zip "$GKI_URL"
     unzip gki-kernel.zip > /dev/null 2>&1 && rm gki-kernel.zip
 
     "$MKBOOTIMG/unpack_bootimg.py" --boot_img="boot-5.10.img"
-    "$MKBOOTIMG/mkbootimg.py" \
-        --header_version 4 \
-        --kernel Image.gz \
-        --output boot.img \
-        --ramdisk out/ramdisk \
-        --os_version 12.0.0 \
-        --os_patch_level "2099-12"
-    "$BUILD_TOOLS/linux-x86/bin/avbtool" add_hash_footer \
-        --partition_name boot \
-        --partition_size $((64 * 1024 * 1024)) \
-        --image boot.img \
-        --algorithm SHA256_RSA4096 \
-        --key "$BOOT_SIGN_KEY"
+    
+    # Packaging boot image
+    "$MKBOOTIMG/mkbootimg.py" --header_version 4 --kernel Image --output boot-raw.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "2025-09"
+    "$BUILD_TOOLS/linux-x86/bin/avbtool" add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-raw.img --algorithm SHA256_RSA4096 --key "$BOOT_SIGN_KEY"
 
-    cp "$BOOT_IMAGE/boot.img" "$OUT_DIR/$package_name-boot.img"
+    "$MKBOOTIMG/mkbootimg.py" --header_version 4 --kernel Image.gz --output boot-gz.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "2025-09"
+    "$BUILD_TOOLS/linux-x86/bin/avbtool" add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA4096 --key "$BOOT_SIGN_KEY"
+
+    "$MKBOOTIMG/mkbootimg.py" --header_version 4 --kernel Image.lz4 --output boot-lz4.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "2025-09"
+    "$BUILD_TOOLS/linux-x86/bin/avbtool" add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA4096 --key "$BOOT_SIGN_KEY"
+
+    # Copy artifact to out
+    cp "$BOOT_IMAGE/boot-raw.img" "$OUT_DIR/$package_name-boot-raw.img"
+    cp "$BOOT_IMAGE/boot-gz.img" "$OUT_DIR/$package_name-boot-gz.img"
+    cp "$BOOT_IMAGE/boot-lz4.img" "$OUT_DIR/$package_name-boot-lz4.img"
 
     popd > /dev/null
 }
@@ -544,7 +534,7 @@ notify_success() {
         cat << EOF
 ✅ *$(escape_md_v2 "$KERNEL_NAME Build Successfully!")*
 
-🏷️ *Tags*: \#$(escape_md_v2 "$BUILD_TAG") \#$(escape_md_v2 "$additional_tag")
+🏷️ *Tags*: \#generic \#$(escape_md_v2 "$BUILD_TAG") \#$(escape_md_v2 "$additional_tag")
 $(tg_run_line)
 
 🧱 *Build*
@@ -557,8 +547,11 @@ $(tg_run_line)
 
 📦 *Options*
 ├ KernelSU: $(parse_bool "$ksu_included")
-├ SuSFS: $(is_true "$SUSFS" && escape_md_v2 "$SUSFS_VERSION" || echo "Disabled")
-└ LXC: $(parse_bool "$LXC")
+└ SuSFS: $(is_true "$SUSFS" && escape_md_v2 "$SUSFS_VERSION" || echo "Disabled")
+
+📎 *Artifact*
+├ Name: $(escape_md_v2 "$(basename "$final_package")")
+└ Size: $(escape_md_v2 "$(du -h "$final_package" | cut -f1)")
 EOF
     )
 
@@ -571,14 +564,6 @@ telegram_notify() {
     # AnyKernel3
     local ak3_package="$OUT_DIR/$PACKAGE_NAME-AnyKernel3.zip"
     notify_success "$ak3_package" "$build_time" "anykernel3"
-
-    # Boot image
-    pushd "$OUT_DIR" > /dev/null
-    zip -9q -T "$PACKAGE_NAME-boot.zip" "$PACKAGE_NAME-boot.img"
-    popd > /dev/null
-
-    notify_success "$OUT_DIR/$PACKAGE_NAME-boot.zip" "$build_time" "boot_image"
-    rm -f "$OUT_DIR/$PACKAGE_NAME-boot.zip"
 }
 
 ################################################################################
@@ -600,7 +585,6 @@ main() {
     # Build package name
     VARIANT="$KSU"
     is_true "$SUSFS" && VARIANT+="-SUSFS"
-    is_true "$LXC" && VARIANT+="-LXC"
     PACKAGE_NAME="$KERNEL_NAME-$KERNEL_VERSION-$VARIANT"
 
     # Build flashable package

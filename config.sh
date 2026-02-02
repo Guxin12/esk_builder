@@ -18,7 +18,7 @@ KBUILD_BUILD_HOST="esk"
 TIMEZONE="Asia/Ho_Chi_Minh"
 
 # Where release artifacts are published
-RELEASE_REPO="ESK-Project/esk-releases"
+RELEASE_REPO="ESK-Project/gki-releases"
 RELEASE_BRANCH="main"
 
 ################################################################################
