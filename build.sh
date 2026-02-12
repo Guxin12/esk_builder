@@ -210,7 +210,7 @@ info "Mode: $(is_ci && echo CI || echo local)"
 # Set timezone
 export TZ="$TIMEZONE"
 
-# Convenient variable 
+# Convenient variable
 ksu_included="true"
 [[ $KSU == "VNL" ]] && ksu_included="false"
 
@@ -486,7 +486,7 @@ package_bootimg() {
     unzip gki-kernel.zip > /dev/null 2>&1 && rm gki-kernel.zip
 
     "$MKBOOTIMG/unpack_bootimg.py" --boot_img="boot-5.10.img"
-    
+
     # Packaging boot image
     "$MKBOOTIMG/mkbootimg.py" --header_version 4 --kernel Image --output boot-raw.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "2025-09"
     "$BUILD_TOOLS/linux-x86/bin/avbtool" add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-raw.img --algorithm SHA256_RSA4096 --key "$BOOT_SIGN_KEY"
