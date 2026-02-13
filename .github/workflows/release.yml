@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         variant:
-          - { name: "Non-KSU", KSU: "VNL", SUSFS: false }
+          - { name: "VNL", KSU: "VNL", SUSFS: false }
           - { name: "KSU", KSU: "KSU", SUSFS: false }
           - { name: "KSU-SUSFS", KSU: "KSU", SUSFS: true }
     name: Build ${{ matrix.variant.name }} variant
